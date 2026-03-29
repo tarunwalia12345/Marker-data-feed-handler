@@ -1,55 +1,95 @@
 #include "parser.h"
-#include "protocol.h"
 #include <cstring>
-#include <iostream>
 
-Parser::Parser(Cache& c) : cache(c) {
-    buffer.reserve(1 << 20);
+Parser::Parser(Cache& c) : cache(c) {}
+
+ParseResult Parser::parse(const char* data, size_t len) {
+    if (len < sizeof(Header)) return {false};
+
+    Header h;
+    std::memcpy(&h, data, sizeof(Header));
+
+    uint16_t symbol = h.symbol;
+    if (symbol >= 1000) return {false};
+
+    auto type = static_cast<uint16_t>(h.type);
+
+    // 🔥 TRADE
+    if (type == static_cast<uint16_t>(MsgType::TRADE)) {
+        if (len < sizeof(Header) + sizeof(Trade)) return {false};
+
+        Trade t;
+        std::memcpy(&t, data + sizeof(Header), sizeof(Trade));
+
+        cache.update_trade(symbol, t.price, t.qty);
+    }
+    // 🔥 QUOTE
+    else if (type == static_cast<uint16_t>(MsgType::QUOTE)) {
+        if (len < sizeof(Header) + sizeof(Quote)) return {false};
+
+        Quote q;
+        std::memcpy(&q, data + sizeof(Header), sizeof(Quote));
+
+        cache.update_quote(symbol,
+                           q.bid_price, q.bid_qty,
+                           q.ask_price, q.ask_qty);
+    }
+    // 🔥 HEARTBEAT (no payload)
+    else if (type == static_cast<uint16_t>(MsgType::HEARTBEAT)) {
+        // do nothing
+    }
+    else {
+        return {false}; // unknown type
+    }
+
+    return {true};
 }
 
-void Parser::on_data(const char* data, size_t len) {
+void Parser::feed(const char* data, size_t len) {
+    // Append incoming TCP data
     buffer.insert(buffer.end(), data, data + len);
 
     size_t offset = 0;
 
-    while (buffer.size() - offset >= sizeof(Header)) {
-        auto* h = reinterpret_cast<Header*>(buffer.data() + offset);
+    while (true) {
+        size_t remaining = buffer.size() - offset;
+
+        // Not enough for header
+        if (remaining < sizeof(Header)) break;
+
+        Header h;
+        std::memcpy(&h, buffer.data() + offset, sizeof(Header));
 
         size_t msg_size = sizeof(Header);
+        auto type = static_cast<uint16_t>(h.type);
 
-        if (h->type == MsgType::TRADE)
+        // Determine full message size
+        if (type == static_cast<uint16_t>(MsgType::TRADE)) {
             msg_size += sizeof(Trade);
-        else if (h->type == MsgType::QUOTE)
+        }
+        else if (type == static_cast<uint16_t>(MsgType::QUOTE)) {
             msg_size += sizeof(Quote);
-        else
-            break;
-
-        if (buffer.size() - offset < msg_size)
-            break;
-
-        if (h->type == MsgType::TRADE) {
-            auto* t = reinterpret_cast<Trade*>(buffer.data() + offset + sizeof(Header));
-
-            cache.update_trade(h->symbol, t->price, t->qty);
-
-            std::cout << "TRADE update symbol: " << h->symbol
-                      << " price: " << t->price << "\n";
         }
-        else if (h->type == MsgType::QUOTE) {
-            auto* q = reinterpret_cast<Quote*>(buffer.data() + offset + sizeof(Header));
-
-            cache.update_quote(
-                h->symbol,
-                q->bid, q->bid_qty,
-                q->ask, q->ask_qty
-            );
-
-            std::cout << "QUOTE update symbol: " << h->symbol
-                      << " bid: " << q->bid
-                      << " ask: " << q->ask << "\n";
+        else if (type == static_cast<uint16_t>(MsgType::HEARTBEAT)) {
+            // no payload
         }
+        else {
+            // ❗ Unknown data → resync (VERY IMPORTANT)
+            offset += 1;
+            continue;
+        }
+
+        // Incomplete message → wait for more data
+        if (remaining < msg_size) break;
+
+        // Process complete message
+        parse(buffer.data() + offset, msg_size);
 
         offset += msg_size;
     }
-    buffer.erase(buffer.begin(), buffer.begin() + offset);
+
+    // Remove processed bytes
+    if (offset > 0) {
+        buffer.erase(buffer.begin(), buffer.begin() + offset);
+    }
 }

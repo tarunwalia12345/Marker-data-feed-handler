@@ -56,13 +56,12 @@ void ExchangeSimulator::run() {
         std::cout << "Sending data...\n";
 
 
-        for (int i = 0; i < num_symbols; i++) {
+        for (size_t i = 0; i < num_symbols; i++) {
             Header h{};
             h.seq = seq++;
             h.symbol = i;
-            h.ts = std::chrono::high_resolution_clock::now()
-                       .time_since_epoch()
-                       .count();
+            h.timestamp=std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
             char buf[sizeof(Header) + sizeof(Quote)];
 
@@ -75,8 +74,8 @@ void ExchangeSimulator::run() {
 
                 double spread = mid * 0.001;
 
-                q.bid = mid - spread;
-                q.ask = mid + spread;
+                q.bid_price = mid - spread;
+                q.ask_price = mid + spread;
                 q.bid_qty = 100;
                 q.ask_qty = 100;
 

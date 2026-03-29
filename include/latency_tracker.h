@@ -1,16 +1,20 @@
 #pragma once
+
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstddef>
 
 class LatencyTracker {
-    static constexpr int BUCKETS = 100;
+public:
+    static constexpr size_t BUCKETS = 64;
 
+private:
     std::array<std::atomic<uint64_t>, BUCKETS> histogram{};
     std::atomic<uint64_t> total_samples{0};
     std::atomic<uint64_t> sum{0};
 
-    int bucket_index(uint64_t ns) const;
+    size_t bucket_index(uint64_t ns) const;
 
 public:
     void record(uint64_t latency_ns);

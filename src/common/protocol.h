@@ -4,15 +4,15 @@
 #pragma pack(push, 1)
 
 enum class MsgType : uint16_t {
-    TRADE = 1,
-    QUOTE = 2,
-    HEARTBEAT = 3
+    TRADE = 0x01,
+    QUOTE = 0x02,
+    HEARTBEAT = 0x03
 };
 
 struct Header {
     MsgType type;
     uint32_t seq;
-    uint64_t ts;
+    uint64_t timestamp;
     uint16_t symbol;
 };
 
@@ -22,9 +22,9 @@ struct Trade {
 };
 
 struct Quote {
-    double bid;
+    double bid_price;
     uint32_t bid_qty;
-    double ask;
+    double ask_price;
     uint32_t ask_qty;
 };
 

@@ -1,51 +1,76 @@
 #include "latency_tracker.h"
 
-int LatencyTracker::bucket_index(uint64_t ns) const {
+// ===============================
+// BUCKET MAPPING (log scale)
+// ===============================
+size_t LatencyTracker::bucket_index(uint64_t ns) const {
+    size_t idx = 0;
+
+    // convert to microseconds for stability
     uint64_t us = ns / 1000;
 
-    int idx = 0;
-    while (us > 1 && idx < BUCKETS - 1) {
+    while (us > 1 && idx + 1 < BUCKETS) {
         us >>= 1;
         idx++;
     }
+
     return idx;
 }
 
-void LatencyTracker::record(uint64_t ns) {
-    int idx = bucket_index(ns);
+// ===============================
+// RECORD (HOT PATH)
+// ===============================
+void LatencyTracker::record(uint64_t latency_ns) {
+    size_t idx = bucket_index(latency_ns);
 
     histogram[idx].fetch_add(1, std::memory_order_relaxed);
     total_samples.fetch_add(1, std::memory_order_relaxed);
-    sum.fetch_add(ns, std::memory_order_relaxed);
+    sum.fetch_add(latency_ns, std::memory_order_relaxed);
 }
 
+// ===============================
+// GET STATS
+// ===============================
 LatencyTracker::Stats LatencyTracker::get_stats() const {
     Stats s{};
-    s.sample_count = total_samples.load();
 
-    if (s.sample_count == 0) return s;
+    uint64_t total = total_samples.load(std::memory_order_relaxed);
+    s.sample_count = total;
 
-    s.mean = sum.load() / s.sample_count;
+    if (total == 0) return s;
 
-    uint64_t p50_t = s.sample_count * 50 / 100;
-    uint64_t p95_t = s.sample_count * 95 / 100;
-    uint64_t p99_t = s.sample_count * 99 / 100;
-    uint64_t p999_t = s.sample_count * 999 / 1000;
+    s.mean = sum.load(std::memory_order_relaxed) / total;
+
+    // percentile targets
+    uint64_t p50_t = total * 50 / 100;
+    uint64_t p95_t = total * 95 / 100;
+    uint64_t p99_t = total * 99 / 100;
+    uint64_t p999_t = total * 999 / 1000;
 
     uint64_t cumulative = 0;
 
-    for (int i = 0; i < BUCKETS; i++) {
-        cumulative += histogram[i].load();
+    bool min_set = false;
 
-        uint64_t val = (1ULL << i) * 1000;
+    for (size_t i = 0; i < BUCKETS; i++) {
+        uint64_t count = histogram[i].load(std::memory_order_relaxed);
+        if (count == 0) continue;
 
-        if (!s.p50 && cumulative >= p50_t) s.p50 = val;
-        if (!s.p95 && cumulative >= p95_t) s.p95 = val;
-        if (!s.p99 && cumulative >= p99_t) s.p99 = val;
-        if (!s.p999 && cumulative >= p999_t) s.p999 = val;
+        // approximate latency value (reverse log scale)
+        uint64_t value = (1ULL << i) * 1000; // back to ns
 
-        if (!s.min && histogram[i] > 0) s.min = val;
-        if (histogram[i] > 0) s.max = val;
+        if (!min_set) {
+            s.min = value;
+            min_set = true;
+        }
+
+        s.max = value;
+
+        cumulative += count;
+
+        if (cumulative >= p50_t && s.p50 == 0) s.p50 = value;
+        if (cumulative >= p95_t && s.p95 == 0) s.p95 = value;
+        if (cumulative >= p99_t && s.p99 == 0) s.p99 = value;
+        if (cumulative >= p999_t && s.p999 == 0) s.p999 = value;
     }
 
     return s;
