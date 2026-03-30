@@ -1,47 +1,16 @@
 #include "parser.h"
 #include <cstring>
+#include <iostream>
+
+static uint32_t checksum(const char* data, size_t len) {
+    uint32_t x = 0;
+    for (size_t i = 0; i < len; i++) x ^= data[i];
+    return x;
+}
+
+static uint32_t last_seq = 0;
 
 Parser::Parser(Cache& c) : cache(c) {}
-
-ParseResult Parser::parse(const char* data, size_t len) {
-    if (len < sizeof(Header)) return {false};
-
-    Header h;
-    std::memcpy(&h, data, sizeof(Header));
-
-    uint16_t symbol = h.symbol;
-    if (symbol >= 1000) return {false};
-
-    auto type = static_cast<uint16_t>(h.type);
-
-    if (type == static_cast<uint16_t>(MsgType::TRADE)) {
-        if (len < sizeof(Header) + sizeof(Trade)) return {false};
-
-        Trade t;
-        std::memcpy(&t, data + sizeof(Header), sizeof(Trade));
-
-        cache.update_trade(symbol, t.price, t.qty);
-    }
-    else if (type == static_cast<uint16_t>(MsgType::QUOTE)) {
-        if (len < sizeof(Header) + sizeof(Quote)) return {false};
-
-        Quote q;
-        std::memcpy(&q, data + sizeof(Header), sizeof(Quote));
-
-        cache.update_quote(symbol,
-                           q.bid_price, q.bid_qty,
-                           q.ask_price, q.ask_qty);
-    }
-    // 🔥 HEARTBEAT (no payload)
-    else if (type == static_cast<uint16_t>(MsgType::HEARTBEAT)) {
-        // do nothing
-    }
-    else {
-        return {false};
-    }
-
-    return {true};
-}
 
 void Parser::feed(const char* data, size_t len) {
     buffer.insert(buffer.end(), data, data + len);
@@ -49,37 +18,47 @@ void Parser::feed(const char* data, size_t len) {
     size_t offset = 0;
 
     while (true) {
-        size_t remaining = buffer.size() - offset;
+        if (buffer.size() - offset < sizeof(Header)) break;
 
-        if (remaining < sizeof(Header)) break;
-
-        Header h;
-        std::memcpy(&h, buffer.data() + offset, sizeof(Header));
+        const Header* h = reinterpret_cast<const Header*>(buffer.data() + offset);
 
         size_t msg_size = sizeof(Header);
-        auto type = static_cast<uint16_t>(h.type);
 
-        if (type == static_cast<uint16_t>(MsgType::TRADE)) {
-            msg_size += sizeof(Trade);
-        }
-        else if (type == static_cast<uint16_t>(MsgType::QUOTE)) {
-            msg_size += sizeof(Quote);
-        }
-        else if (type == static_cast<uint16_t>(MsgType::HEARTBEAT)) {
-        }
-        else {
+        if (h->type == MsgType::TRADE) msg_size += sizeof(Trade);
+        else if (h->type == MsgType::QUOTE) msg_size += sizeof(Quote);
+
+        msg_size += 4;
+
+        if (buffer.size() - offset < msg_size) break;
+
+        uint32_t expected_cs;
+        memcpy(&expected_cs, buffer.data() + offset + msg_size - 4, 4);
+
+        uint32_t actual_cs = checksum(buffer.data() + offset, msg_size - 4);
+
+        if (expected_cs != actual_cs) {
             offset += 1;
             continue;
         }
 
-        if (remaining < msg_size) break;
+        if (last_seq && h->seq != last_seq + 1) {
+            std::cout << "SEQ GAP: " << last_seq << " -> " << h->seq << "\n";
+        }
 
-        parse(buffer.data() + offset, msg_size);
+        last_seq = h->seq;
+
+        if (h->type == MsgType::TRADE) {
+            const Trade* t = reinterpret_cast<const Trade*>(buffer.data() + offset + sizeof(Header));
+            cache.update_trade(h->symbol, t->price, t->qty);
+        } else if (h->type == MsgType::QUOTE) {
+            const Quote* q = reinterpret_cast<const Quote*>(buffer.data() + offset + sizeof(Header));
+            cache.update_quote(h->symbol,
+                               q->bid_price, q->bid_qty,
+                               q->ask_price, q->ask_qty);
+        }
 
         offset += msg_size;
     }
 
-    if (offset > 0) {
-        buffer.erase(buffer.begin(), buffer.begin() + offset);
-    }
+    if (offset) buffer.erase(buffer.begin(), buffer.begin() + offset);
 }

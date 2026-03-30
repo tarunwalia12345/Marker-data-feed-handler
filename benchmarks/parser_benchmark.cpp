@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstring>
 
+#include "../src/common/protocol.h"
 #include "../include/cache.h"
 #include "../include/parser.h"
 
@@ -21,9 +22,11 @@ int main() {
 
     auto end = std::chrono::high_resolution_clock::now();
 
-    double seconds = std::chrono::duration<double>(end - start).count();
+    double seconds =
+        std::chrono::duration<double>(end - start).count();
 
-    std::cout << "Parser throughput: " << (N / seconds) << " msg/sec\n";
+    std::cout << "Parser throughput: "
+              << (N / seconds) << " msg/sec\n";
 
     return 0;
 }

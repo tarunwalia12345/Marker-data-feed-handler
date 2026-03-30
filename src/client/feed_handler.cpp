@@ -10,15 +10,18 @@
 #include "cache.h"
 #include "market_socket.h"
 #include "parser.h"
+#include "latency_tracker.h"
 
 // ================= SHARED STATS =================
 struct Stats {
-    std::atomic<uint64_t> messages;
-    std::atomic<uint64_t> updates;
-    std::atomic<uint64_t> seq_gaps;
+    std::atomic<uint64_t> messages{0};
+    std::atomic<uint64_t> updates{0};
+    std::atomic<uint64_t> seq_gaps{0};
 };
 
-extern Stats stats;
+// ✅ DEFINE ONLY HERE
+Stats stats;
+LatencyTracker latency;
 
 // no header
 void render(Cache&, uint64_t);
@@ -39,7 +42,7 @@ int main() {
     int epfd = epoll_create1(0);
 
     epoll_event ev{};
-    ev.events = EPOLLIN;
+    ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = sock;
 
     epoll_ctl(epfd, EPOLL_CTL_ADD, sock, &ev);
@@ -57,6 +60,10 @@ int main() {
         for (int i = 0; i < n; i++) {
             if (events[i].data.fd == sock) {
 
+                if (events[i].events & (EPOLLHUP | EPOLLERR)) {
+                    goto shutdown;
+                }
+
                 while (true) {
                     char buf[4096];
 
@@ -68,7 +75,15 @@ int main() {
                         stats.messages.fetch_add(1, std::memory_order_relaxed);
                         stats.updates.fetch_add(1, std::memory_order_relaxed);
 
+                        auto t1 = std::chrono::high_resolution_clock::now();
+
                         parser.feed(buf, len);
+
+                        auto t2 = std::chrono::high_resolution_clock::now();
+
+                        latency.record(
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count()
+                        );
                     }
                     else if (len == 0) {
                         goto shutdown;
@@ -97,6 +112,7 @@ int main() {
             if (c == 'r') {
                 stats.messages.store(0, std::memory_order_relaxed);
                 stats.updates.store(0, std::memory_order_relaxed);
+                stats.seq_gaps.store(0, std::memory_order_relaxed);
             }
         }
     }
