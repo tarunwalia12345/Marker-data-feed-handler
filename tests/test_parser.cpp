@@ -1,8 +1,14 @@
 #include <gtest/gtest.h>
 #include "parser.h"
 #include "cache.h"
-#include "protocol.h"
+#include "../src/common/protocol.h"
 #include <cstring>
+
+static uint32_t checksum(const char* data, size_t len) {
+    uint32_t x = 0;
+    for (size_t i = 0; i < len; i++) x ^= data[i];
+    return x;
+}
 
 TEST(ParserTest, ValidTradeMessage) {
     Cache cache(1000);
@@ -18,11 +24,18 @@ TEST(ParserTest, ValidTradeMessage) {
     t.price = 100.5;
     t.qty = 10;
 
-    char buffer[sizeof(Header) + sizeof(Trade)];
+    char buffer[128];
+    size_t len = 0;
+
     std::memcpy(buffer, &h, sizeof(h));
     std::memcpy(buffer + sizeof(h), &t, sizeof(t));
+    len = sizeof(h) + sizeof(t);
 
-    parser.feed(buffer, sizeof(buffer));
+    uint32_t cs = checksum(buffer, len);
+    std::memcpy(buffer + len, &cs, 4);
+    len += 4;
+
+    parser.feed(buffer, len);
 
     auto state = cache.get(1);
 
@@ -34,7 +47,6 @@ TEST(ParserTest, ValidQuoteMessage) {
     Cache cache(1000);
     Parser parser(cache);
 
-    // Create QUOTE message
     Header h{};
     h.type = MsgType::QUOTE;
     h.seq = 2;
@@ -47,11 +59,18 @@ TEST(ParserTest, ValidQuoteMessage) {
     q.bid_qty = 10;
     q.ask_qty = 20;
 
-    char buffer[sizeof(Header) + sizeof(Quote)];
+    char buffer[128];
+    size_t len = 0;
+
     std::memcpy(buffer, &h, sizeof(h));
     std::memcpy(buffer + sizeof(h), &q, sizeof(q));
+    len = sizeof(h) + sizeof(q);
 
-    parser.feed(buffer, sizeof(buffer));
+    uint32_t cs = checksum(buffer, len);
+    std::memcpy(buffer + len, &cs, 4);
+    len += 4;
+
+    parser.feed(buffer, len);
 
     auto state = cache.get(2);
 
@@ -75,12 +94,19 @@ TEST(ParserTest, FragmentedMessage) {
     t.price = 200.25;
     t.qty = 5;
 
-    char buffer[sizeof(Header) + sizeof(Trade)];
+    char buffer[128];
+    size_t len = 0;
+
     std::memcpy(buffer, &h, sizeof(h));
     std::memcpy(buffer + sizeof(h), &t, sizeof(t));
+    len = sizeof(h) + sizeof(t);
+
+    uint32_t cs = checksum(buffer, len);
+    std::memcpy(buffer + len, &cs, 4);
+    len += 4;
 
     parser.feed(buffer, sizeof(Header));
-    parser.feed(buffer + sizeof(Header), sizeof(Trade));
+    parser.feed(buffer + sizeof(Header), len - sizeof(Header));
 
     auto state = cache.get(3);
 

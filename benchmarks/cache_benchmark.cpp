@@ -13,6 +13,10 @@ int main() {
         cache.update_trade(1, 100.0 + i, i);
     }
 
+    auto snap = cache.get(1);
+    volatile double sink = snap.last_price;
+    (void) sink;
+
     auto end = std::chrono::high_resolution_clock::now();
 
     double seconds = std::chrono::duration<double>(end - start).count();

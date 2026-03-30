@@ -31,7 +31,7 @@ TEST(CacheTest, MultiThreadedReadWrite) {
     std::thread reader([&]() {
         for (int i = 0; i < 100000; i++) {
             auto snap = cache.get(1);
-            (void)snap;
+            (void) snap;
         }
     });
 
