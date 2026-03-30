@@ -8,7 +8,6 @@ TEST(ParserTest, ValidTradeMessage) {
     Cache cache(1000);
     Parser parser(cache);
 
-    // Create TRADE message
     Header h{};
     h.type = MsgType::TRADE;
     h.seq = 1;
@@ -23,13 +22,10 @@ TEST(ParserTest, ValidTradeMessage) {
     std::memcpy(buffer, &h, sizeof(h));
     std::memcpy(buffer + sizeof(h), &t, sizeof(t));
 
-    // Feed parser
     parser.feed(buffer, sizeof(buffer));
 
-    // Get snapshot
     auto state = cache.get(1);
 
-    // ✅ NO .load() (already converted)
     ASSERT_DOUBLE_EQ(state.last_price, 100.5);
     ASSERT_EQ(state.last_qty, 10);
 }
@@ -83,7 +79,6 @@ TEST(ParserTest, FragmentedMessage) {
     std::memcpy(buffer, &h, sizeof(h));
     std::memcpy(buffer + sizeof(h), &t, sizeof(t));
 
-    // Send in two parts (simulate TCP fragmentation)
     parser.feed(buffer, sizeof(Header));
     parser.feed(buffer + sizeof(Header), sizeof(Trade));
 

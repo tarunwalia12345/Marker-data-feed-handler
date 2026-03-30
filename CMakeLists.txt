@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(market_data LANGUAGES CXX)
 
+include_directories(${CMAKE_SOURCE_DIR}/include)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,9 +27,7 @@ target_include_directories(common PUBLIC
 )
 
 target_compile_options(common PRIVATE ${COMMON_WARNINGS})
-
 target_link_libraries(common PUBLIC Threads::Threads)
-
 
 add_executable(server
         src/server/main.cpp
@@ -37,12 +36,6 @@ add_executable(server
         src/server/client_manager.cpp
 )
 
-target_include_directories(server PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/server
-)
-
-target_compile_options(server PRIVATE ${COMMON_WARNINGS})
 target_link_libraries(server PRIVATE common)
 
 add_executable(client
@@ -52,15 +45,7 @@ add_executable(client
         src/client/market_socket.cpp
 )
 
-target_include_directories(client PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/client
-        ${CMAKE_SOURCE_DIR}/src/common
-)
-
-target_compile_options(client PRIVATE ${COMMON_WARNINGS})
 target_link_libraries(client PRIVATE common)
-
 
 add_executable(latency_benchmark benchmarks/latency_benchmark.cpp)
 
@@ -72,13 +57,8 @@ add_executable(parser_benchmark
 add_executable(cache_benchmark benchmarks/cache_benchmark.cpp)
 
 foreach(b IN ITEMS latency_benchmark parser_benchmark cache_benchmark)
-    target_include_directories(${b} PRIVATE
-            ${CMAKE_SOURCE_DIR}/include
-            ${CMAKE_SOURCE_DIR}/src/common
-            ${CMAKE_SOURCE_DIR}/src/client
-    )
-    target_compile_options(${b} PRIVATE ${COMMON_WARNINGS})
     target_link_libraries(${b} PRIVATE common Threads::Threads)
+    target_compile_options(${b} PRIVATE ${COMMON_WARNINGS})
 endforeach()
 
 enable_testing()
@@ -104,18 +84,13 @@ add_executable(test_parser
 add_executable(test_latency tests/test_latency.cpp)
 
 foreach(t IN ITEMS test_cache test_parser test_latency)
-    target_include_directories(${t} PRIVATE
-            ${CMAKE_SOURCE_DIR}/include
-            ${CMAKE_SOURCE_DIR}/src/common
-            ${CMAKE_SOURCE_DIR}/src/client
-    )
-    target_compile_options(${t} PRIVATE ${COMMON_WARNINGS})
     target_link_libraries(${t} PRIVATE
             common
             GTest::gtest
             GTest::gtest_main
             Threads::Threads
     )
+    target_compile_options(${t} PRIVATE ${COMMON_WARNINGS})
 endforeach()
 
 add_test(NAME cache_test COMMAND test_cache)

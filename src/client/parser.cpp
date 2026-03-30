@@ -37,7 +37,7 @@ ParseResult Parser::parse(const char* data, size_t len) {
         // do nothing
     }
     else {
-        return {false}
+        return {false};
     }
 
     return {true};
