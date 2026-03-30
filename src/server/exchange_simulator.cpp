@@ -1,6 +1,6 @@
 #include "exchange_simulator.h"
-#include "protocol.h"
-#include "../src/server/tick_generator.cpp"
+#include "../common/protocol.h"
+#include "tick_generator.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -15,8 +15,9 @@
 #include <thread>
 #include <errno.h>
 #include <atomic>
+#include <random>
 
-static uint32_t checksum(const char* data, size_t len) {
+static uint32_t checksum(const char *data, size_t len) {
     uint32_t x = 0;
     for (size_t i = 0; i < len; i++) x ^= data[i];
     return x;
@@ -31,14 +32,17 @@ ExchangeSimulator::ExchangeSimulator(uint16_t p, size_t n)
     : port(p), num_symbols(n) {}
 
 void ExchangeSimulator::start() {
-    std::cout << "🚀 Server started on port " << port << "\n";
+    std::cout << "Server started on port " << port << "\n";
 }
 
 void ExchangeSimulator::run() {
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        perror("socket");
+        return;
+    }
 
-    // ✅ ADDED: socket tuning
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
@@ -52,8 +56,15 @@ void ExchangeSimulator::run() {
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = INADDR_ANY;
 
-    bind(server_fd, (sockaddr*)&addr, sizeof(addr));
-    listen(server_fd, 1024);
+    if (bind(server_fd, (sockaddr *) &addr, sizeof(addr)) < 0) {
+        perror("bind");
+        return;
+    }
+
+    if (listen(server_fd, 1024) < 0) {
+        perror("listen");
+        return;
+    }
 
     int epfd = epoll_create1(0);
 
@@ -64,14 +75,17 @@ void ExchangeSimulator::run() {
 
     std::vector<Client> clients;
     TickGenerator generator(static_cast<int>(num_symbols));
-    uint32_t seq = 0;
 
+    std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> type_dist(0, 99);
+    std::uniform_int_distribution<int> qty_dist(50, 500);
+
+    uint32_t seq = 0;
     std::vector<char> batch;
     batch.reserve(64 * 1024);
 
     auto last = std::chrono::high_resolution_clock::now();
 
-    // ✅ OPTIONAL graceful shutdown
     std::atomic<bool> running{true};
 
     while (running) {
@@ -79,68 +93,52 @@ void ExchangeSimulator::run() {
         epoll_event events[64];
         int n = epoll_wait(epfd, events, 64, 0);
 
-        // ================= EPOLL =================
         for (int i = 0; i < n; i++) {
-
-            // 🔥 ACCEPT
             if (events[i].data.fd == server_fd) {
+
                 while (true) {
                     int client_fd = accept(server_fd, nullptr, nullptr);
-                    if (client_fd < 0) break;
+
+                    if (client_fd < 0) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                        perror("accept");
+                        break;
+                    }
 
                     fcntl(client_fd, F_SETFL, O_NONBLOCK);
-
                     clients.push_back({client_fd, {}});
 
-                    // ✅ ADDED: track client in epoll
                     epoll_event cev{};
                     cev.events = EPOLLIN | EPOLLRDHUP;
                     cev.data.fd = client_fd;
                     epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &cev);
                 }
             }
-            else {
-                // ✅ ADDED: detect disconnect
-                if (events[i].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
-
-                    int fd = events[i].data.fd;
-
-                    for (auto it = clients.begin(); it != clients.end(); ++it) {
-                        if (it->fd == fd) {
-                            close(fd);
-                            clients.erase(it);
-                            break;
-                        }
-                    }
-                }
-            }
         }
 
-        // ================= RETRY BUFFER =================
         for (auto it = clients.begin(); it != clients.end();) {
-            Client& c = *it;
+
+            Client &c = *it;
 
             if (!c.buffer.empty()) {
+
                 ssize_t sent = send(c.fd, c.buffer.data(), c.buffer.size(), MSG_DONTWAIT);
 
                 if (sent > 0) {
                     c.buffer.erase(c.buffer.begin(), c.buffer.begin() + sent);
                     ++it;
-                }
-                else if (sent < 0 && errno != EAGAIN) {
+                } else if (sent < 0 && errno != EAGAIN) {
                     close(c.fd);
                     it = clients.erase(it);
-                }
-                else {
+                } else {
                     ++it;
                 }
-            }
-            else {
+
+            } else {
                 ++it;
             }
         }
 
-        // ================= GENERATE =================
         batch.clear();
 
         for (size_t i = 0; i < num_symbols; i++) {
@@ -153,31 +151,43 @@ void ExchangeSimulator::run() {
             char msg[128];
             size_t msg_len = 0;
 
-            bool corrupt = (rand() % 1000 == 0);
+            double mid = generator.next((int)i);
+            double spread = mid * 0.0005;
 
-            if (rand() % 100 < 70) {
+            double bid = mid - spread;
+            double ask = mid + spread;
+
+            // safety
+            if (bid <= 0) bid = 1.0;
+            if (ask <= bid) ask = bid + 0.01;
+
+            bool send_quote = (type_dist(rng) < 70);
+
+            if (send_quote) {
+
                 h.type = MsgType::QUOTE;
 
                 Quote q{};
-                double mid = generator.next(static_cast<int>(i));
-                double spread = mid * (0.0005 + (rand() % 150) / 100000.0);
-
-                q.bid_price = mid - spread;
-                q.ask_price = mid + spread;
-                q.bid_qty = 100;
-                q.ask_qty = 100;
+                q.bid_price = bid;
+                q.ask_price = ask;
+                q.bid_qty = qty_dist(rng);
+                q.ask_qty = qty_dist(rng);
 
                 memcpy(msg, &h, sizeof(h));
                 memcpy(msg + sizeof(h), &q, sizeof(q));
 
                 msg_len = sizeof(h) + sizeof(q);
-            }
-            else {
+
+            } else {
+
                 h.type = MsgType::TRADE;
 
                 Trade t{};
-                t.price = generator.next(static_cast<int>(i));
-                t.qty = 100;
+
+                double trade_price = std::min(std::max(mid, bid), ask);
+
+                t.price = trade_price;
+                t.qty = qty_dist(rng);
 
                 memcpy(msg, &h, sizeof(h));
                 memcpy(msg + sizeof(h), &t, sizeof(t));
@@ -185,10 +195,8 @@ void ExchangeSimulator::run() {
                 msg_len = sizeof(h) + sizeof(t);
             }
 
+            // ===== CHECKSUM =====
             uint32_t cs = checksum(msg, msg_len);
-
-            if (corrupt) cs ^= 0xFFFF;
-
             memcpy(msg + msg_len, &cs, 4);
             msg_len += 4;
 
@@ -197,66 +205,26 @@ void ExchangeSimulator::run() {
             }
         }
 
-        // ================= FAIR SEND =================
         if (!clients.empty()) {
 
-            size_t start = seq % clients.size(); // ✅ ADDED fairness
+            size_t start = seq % clients.size();
 
-            for (size_t i = 0; i < clients.size();) {
+            for (size_t i = 0; i < clients.size(); i++) {
 
-                Client& c = clients[(start + i) % clients.size()];
+                Client &c = clients[(start + i) % clients.size()];
 
                 ssize_t sent = send(c.fd, batch.data(), batch.size(), MSG_DONTWAIT);
 
                 if (sent < 0) {
                     if (errno == EAGAIN) {
-
-                        // ✅ BUFFER LIMIT
-                        constexpr size_t MAX_BUFFER = 1 << 20;
-
-                        if (c.buffer.size() > MAX_BUFFER) {
-                            std::cout << "Dropping slow client\n";
-                            close(c.fd);
-
-                            // remove safely
-                            for (auto it = clients.begin(); it != clients.end(); ++it) {
-                                if (it->fd == c.fd) {
-                                    clients.erase(it);
-                                    break;
-                                }
-                            }
-                            continue;
-                        }
-
                         c.buffer.insert(c.buffer.end(), batch.begin(), batch.end());
-                        ++i;
-                    }
-                    else {
+                    } else {
                         close(c.fd);
-
-                        for (auto it = clients.begin(); it != clients.end(); ++it) {
-                            if (it->fd == c.fd) {
-                                clients.erase(it);
-                                break;
-                            }
-                        }
                     }
-                }
-                else if (sent < (ssize_t)batch.size()) {
-                    c.buffer.insert(
-                        c.buffer.end(),
-                        batch.begin() + sent,
-                        batch.end()
-                    );
-                    ++i;
-                }
-                else {
-                    ++i;
                 }
             }
         }
 
-        // ================= TICK RATE =================
         auto now = std::chrono::high_resolution_clock::now();
 
         double elapsed = std::chrono::duration<double>(now - last).count();

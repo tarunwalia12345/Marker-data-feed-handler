@@ -1,7 +1,7 @@
 #include "parser.h"
 #include <cstring>
 #include <iostream>
-
+#include "../common/protocol.h"
 static uint32_t checksum(const char *data, size_t len) {
     uint32_t x = 0;
     for (size_t i = 0; i < len; i++) x ^= data[i];

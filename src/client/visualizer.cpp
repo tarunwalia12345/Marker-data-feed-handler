@@ -10,7 +10,6 @@
 #include "cache.h"
 #include "latency_tracker.h"
 
-
 extern LatencyTracker latency;
 
 extern struct Stats {
@@ -19,62 +18,61 @@ extern struct Stats {
     std::atomic<uint64_t> seq_gaps;
 } stats;
 
-
 #define CLEAR "\033[H"
 #define CLEAR_ALL "\033[2J"
 #define GREEN "\033[32m"
 #define RED   "\033[31m"
 #define RESET "\033[0m"
 
-
 void handle_resize(int) {
     std::cout << CLEAR_ALL;
 }
 
 
-struct Row {
-    int symbol;
-    double bid, ask, ltp;
-    uint32_t volume;
-    uint64_t updates;
-    double change;
-};
-
-
 void render(Cache &cache, uint64_t messages) {
-    static bool signal_set = false;
-    if (!signal_set) {
-        signal(SIGWINCH, handle_resize);
-        signal_set = true;
-    }
+
+    constexpr int MAX_SYMBOLS = 100;
 
     static auto start = std::chrono::steady_clock::now();
-
-    static std::vector<double> base(100, 0);
-
     auto now = std::chrono::steady_clock::now();
 
     double seconds = std::chrono::duration<double>(now - start).count();
-    double rate = seconds > 0 ? static_cast<double>(messages) / seconds : 0.0;
+    double rate = seconds > 0 ? messages / seconds : 0;
+
+    struct Row {
+        std::string name;
+        double bid, ask, ltp;
+        uint32_t volume;
+        uint64_t updates;
+        double change;
+    };
+
+    static const char* SYMBOLS[] = {
+        "RELIANCE","TCS","INFY","HDFC","ICICIBANK","SBIN","WIPRO","LT",
+        "AXISBANK","HCLTECH","MARUTI","BAJFINANCE","ITC","KOTAKBANK",
+        "ADANIENT","ASIANPAINT","SUNPHARMA","ULTRACEMCO","TITAN","ONGC"
+    };
+
+    static std::vector<double> base(MAX_SYMBOLS, 0);
 
     std::vector<Row> rows;
+    rows.reserve(MAX_SYMBOLS);
 
-    for (int i = 0; i < 100; i++) {
-        auto s = cache.get(static_cast<uint16_t>(i));
+    // ===== BUILD DATA =====
+    for (int i = 0; i < MAX_SYMBOLS; i++) {
 
-        if (s.updates == 0) continue;
+        auto s = cache.get(i);
 
-        if (base[i] == 0 && s.last_price > 0) {
-            base[i] = s.last_price;
-        }
+        if (s.last_price < 10 || s.updates < 5) continue;
 
-        double chg = 0.0;
-        if (base[i] > 0) {
-            chg = ((s.last_price - base[i]) / base[i]) * 100.0;
-        }
+        if (base[i] == 0) base[i] = s.last_price;
+
+        double chg = ((s.last_price - base[i]) / base[i]) * 100.0;
+
+        std::string name = (i < 20) ? SYMBOLS[i] : ("SYM" + std::to_string(i));
 
         rows.push_back({
-            i,
+            name,
             s.best_bid,
             s.best_ask,
             s.last_price,
@@ -84,45 +82,78 @@ void render(Cache &cache, uint64_t messages) {
         });
     }
 
-    size_t topN = std::min<size_t>(20, rows.size());
+    std::sort(rows.begin(), rows.end(),
+        [](const Row &a, const Row &b) {
+            return a.updates > b.updates;
+        });
 
-    std::partial_sort(rows.begin(), rows.begin() + topN, rows.end(),
-                      [](const Row &a, const Row &b) {
-                          return a.updates > b.updates;
-                      });
-
-    if (rows.size() > topN) rows.resize(topN);
+    if (rows.size() > 20) rows.resize(20);
 
     auto lat = latency.get_stats();
 
-
-    std::cout << CLEAR;
+    std::cout << CLEAR_ALL << CLEAR;
 
     std::cout << "=== NSE Market Data Feed Handler ===\n";
-    std::cout << "Messages: " << messages
-            << " | Rate: " << rate << " msg/s\n\n";
+    std::cout << "Connected to: localhost:9877\n";
 
-    std::cout << "Symbol   Bid       Ask       LTP       Vol     Chg%     Updates\n";
-    std::cout << "-----------------------------------------------------------------\n";
+    int hrs = static_cast<int>(seconds) / 3600;
+    int mins = (static_cast<int>(seconds) % 3600) / 60;
+    int secs = static_cast<int>(seconds) % 60;
 
-    for (const auto &r: rows) {
+    std::cout << "Uptime: "
+              << std::setw(2) << std::setfill('0') << hrs << ":"
+              << std::setw(2) << mins << ":"
+              << std::setw(2) << secs;
+
+    std::cout << std::setfill(' ');
+
+    std::cout << " | Messages: " << messages
+              << " | Rate: " << static_cast<uint64_t>(rate) << " msg/s\n\n";
+
+    std::cout << std::fixed << std::setprecision(2);
+
+    std::cout << std::left
+              << std::setw(12) << "Symbol"
+              << std::right
+              << std::setw(12) << "Bid"
+              << std::setw(12) << "Ask"
+              << std::setw(12) << "LTP"
+              << std::setw(12) << "Volume"
+              << std::setw(10) << "Chg%"
+              << std::setw(12) << "Updates"
+              << "\n";
+
+    std::cout << "-------------------------------------------------------------------------------\n";
+
+    for (const auto &r : rows) {
+
         const char *color = (r.change >= 0) ? GREEN : RED;
 
-        std::cout << std::setw(6) << r.symbol
-                << std::setw(10) << r.bid
-                << std::setw(10) << r.ask
-                << std::setw(10) << r.ltp
-                << std::setw(10) << r.volume
-                << color << std::setw(8) << std::fixed << std::setprecision(2) << r.change << RESET
-                << std::setw(10) << r.updates
-                << "\n";
+        std::cout << std::left << std::setw(12) << r.name
+                  << std::right
+                  << std::setw(12) << r.bid
+                  << std::setw(12) << r.ask
+                  << std::setw(12) << r.ltp
+                  << std::setw(12) << r.volume
+                  << color << std::setw(10) << r.change << RESET
+                  << std::setw(12) << r.updates
+                  << "\n";
     }
 
-    std::cout << "\nLatency p50=" << lat.p50
-            << " p99=" << lat.p99
-            << " p999=" << lat.p999 << "\n";
+    std::cout << "\n[Top 20 symbols by update frequency]\n\n";
 
-    std::cout << "Seq gaps: " << stats.seq_gaps.load() << "\n";
+    std::cout << "Statistics:\n";
 
-    std::cout << "\nPress 'q' to quit | 'r' to reset stats\n";
+    std::cout << "Parser Throughput: "
+              << static_cast<uint64_t>(rate) << " msg/s\n";
+
+    std::cout << "End-to-End Latency: "
+              << "p50=" << lat.p50 / 1000 << "us "
+              << "p99=" << lat.p99 / 1000 << "us "
+              << "p999=" << lat.p999 / 1000 << "us\n";
+
+    std::cout << "Sequence Gaps: " << stats.seq_gaps.load() << "\n";
+    std::cout << "Cache Updates: " << messages << "\n";
+
+    std::cout << "\nPress 'q' to quit, 'r' to reset stats\n";
 }

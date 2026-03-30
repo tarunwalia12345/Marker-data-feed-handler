@@ -2,7 +2,6 @@
 
 #include <vector>
 #include <cstddef>
-#include "protocol.h"
 #include "cache.h"
 
 struct ParseResult {

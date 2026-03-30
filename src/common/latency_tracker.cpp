@@ -1,7 +1,7 @@
 #include "latency_tracker.h"
 
 size_t LatencyTracker::bucket_index(uint64_t ns) const {
-    size_t bucket = 0; // renamed to avoid shadowing
+    size_t bucket = 0;
 
     uint64_t us = ns / 1000;
 
@@ -57,7 +57,6 @@ LatencyTracker::Stats LatencyTracker::get_stats() const {
     for (size_t i = 0; i < BUCKETS; i++) {
         cumulative += histogram[i].load(std::memory_order_relaxed);
 
-        // convert bucket → latency (ns)
         uint64_t value = (1ULL << i) * 1000; // µs → ns
 
         if (cumulative >= t50 && s.p50 == 0) s.p50 = value;

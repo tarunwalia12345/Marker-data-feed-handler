@@ -1,17 +1,15 @@
 #include <gtest/gtest.h>
 #include "parser.h"
 #include "cache.h"
-#include "protocol.h"
+#include "../src/common/protocol.h"
 #include <cstring>
 
-// ================= CHECKSUM HELPER =================
 static uint32_t checksum(const char* data, size_t len) {
     uint32_t x = 0;
     for (size_t i = 0; i < len; i++) x ^= data[i];
     return x;
 }
 
-// ================= TRADE =================
 TEST(ParserTest, ValidTradeMessage) {
     Cache cache(1000);
     Parser parser(cache);
@@ -33,7 +31,6 @@ TEST(ParserTest, ValidTradeMessage) {
     std::memcpy(buffer + sizeof(h), &t, sizeof(t));
     len = sizeof(h) + sizeof(t);
 
-    // ✅ ADD CHECKSUM
     uint32_t cs = checksum(buffer, len);
     std::memcpy(buffer + len, &cs, 4);
     len += 4;
@@ -46,7 +43,6 @@ TEST(ParserTest, ValidTradeMessage) {
     ASSERT_EQ(state.last_qty, 10);
 }
 
-// ================= QUOTE =================
 TEST(ParserTest, ValidQuoteMessage) {
     Cache cache(1000);
     Parser parser(cache);
@@ -70,7 +66,6 @@ TEST(ParserTest, ValidQuoteMessage) {
     std::memcpy(buffer + sizeof(h), &q, sizeof(q));
     len = sizeof(h) + sizeof(q);
 
-    // ✅ ADD CHECKSUM
     uint32_t cs = checksum(buffer, len);
     std::memcpy(buffer + len, &cs, 4);
     len += 4;
@@ -85,7 +80,6 @@ TEST(ParserTest, ValidQuoteMessage) {
     ASSERT_EQ(state.ask_qty, 20);
 }
 
-// ================= FRAGMENTED =================
 TEST(ParserTest, FragmentedMessage) {
     Cache cache(1000);
     Parser parser(cache);
@@ -107,12 +101,10 @@ TEST(ParserTest, FragmentedMessage) {
     std::memcpy(buffer + sizeof(h), &t, sizeof(t));
     len = sizeof(h) + sizeof(t);
 
-    // ✅ ADD CHECKSUM
     uint32_t cs = checksum(buffer, len);
     std::memcpy(buffer + len, &cs, 4);
     len += 4;
 
-    // Fragmented feed
     parser.feed(buffer, sizeof(Header));
     parser.feed(buffer + sizeof(Header), len - sizeof(Header));
 
