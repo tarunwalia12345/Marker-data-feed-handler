@@ -1,18 +1,13 @@
 #include "../../include/cache.h"
 #include <stdexcept>
 
-// ===============================
-// CONSTRUCTOR
-// ===============================
+
 Cache::Cache(size_t n) : data(n) {
     if (n == 0) {
         throw std::invalid_argument("Cache size must be > 0");
     }
 }
 
-// ===============================
-// TRADE UPDATE (SINGLE WRITER)
-// ===============================
 void Cache::update_trade(uint16_t sym, double price, uint32_t qty) {
     auto& s = data[sym];
 
@@ -30,9 +25,6 @@ void Cache::update_trade(uint16_t sym, double price, uint32_t qty) {
     s.version.store(v + 2, std::memory_order_release);
 }
 
-// ===============================
-// QUOTE UPDATE
-// ===============================
 void Cache::update_quote(uint16_t sym, double bid, uint32_t bq,
                          double ask, uint32_t aq) {
     auto& s = data[sym];
@@ -52,9 +44,6 @@ void Cache::update_quote(uint16_t sym, double bid, uint32_t bq,
     s.version.store(v + 2, std::memory_order_release);
 }
 
-// ===============================
-// LOCK-FREE SNAPSHOT READ
-// ===============================
 MarketSnapshot Cache::get(uint16_t sym) const {
     const auto& s = data[sym];
     MarketSnapshot snap;
@@ -78,7 +67,7 @@ MarketSnapshot Cache::get(uint16_t sym) const {
 
         uint64_t v2 = s.version.load(std::memory_order_acquire);
 
-        if (v1 == v2) break; // consistent read
+        if (v1 == v2) break;
     }
 
     return snap;

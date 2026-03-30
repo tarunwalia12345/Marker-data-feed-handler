@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(market_data LANGUAGES CXX)
 
-# ================= BASIC =================
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -10,13 +10,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# ================= FLAGS =================
 set(COMMON_WARNINGS -Wall -Wextra -Wshadow)
 
-# ================= THREADS =================
 find_package(Threads REQUIRED)
 
-# ================= COMMON LIB =================
 add_library(common STATIC
         src/common/cache.cpp
         src/common/memory_pool.cpp
@@ -32,7 +29,7 @@ target_compile_options(common PRIVATE ${COMMON_WARNINGS})
 
 target_link_libraries(common PUBLIC Threads::Threads)
 
-# ================= SERVER =================
+
 add_executable(server
         src/server/main.cpp
         src/server/exchange_simulator.cpp
@@ -48,7 +45,6 @@ target_include_directories(server PRIVATE
 target_compile_options(server PRIVATE ${COMMON_WARNINGS})
 target_link_libraries(server PRIVATE common)
 
-# ================= CLIENT =================
 add_executable(client
         src/client/feed_handler.cpp
         src/client/parser.cpp
@@ -65,13 +61,12 @@ target_include_directories(client PRIVATE
 target_compile_options(client PRIVATE ${COMMON_WARNINGS})
 target_link_libraries(client PRIVATE common)
 
-# ================= BENCHMARKS =================
 
 add_executable(latency_benchmark benchmarks/latency_benchmark.cpp)
 
 add_executable(parser_benchmark
         benchmarks/parser_benchmark.cpp
-        src/client/parser.cpp   # 🔥 required
+        src/client/parser.cpp
 )
 
 add_executable(cache_benchmark benchmarks/cache_benchmark.cpp)
@@ -86,12 +81,10 @@ foreach(b IN ITEMS latency_benchmark parser_benchmark cache_benchmark)
     target_link_libraries(${b} PRIVATE common Threads::Threads)
 endforeach()
 
-# ================= TESTS =================
 enable_testing()
 
 include(FetchContent)
 
-# 🔥 FIX: USE STABLE VERSION (IMPORTANT)
 FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
@@ -105,7 +98,7 @@ add_executable(test_cache tests/test_cache.cpp)
 
 add_executable(test_parser
         tests/test_parser.cpp
-        src/client/parser.cpp   # 🔥 required
+        src/client/parser.cpp
 )
 
 add_executable(test_latency tests/test_latency.cpp)
@@ -129,12 +122,10 @@ add_test(NAME cache_test COMMAND test_cache)
 add_test(NAME parser_test COMMAND test_parser)
 add_test(NAME latency_test COMMAND test_latency)
 
-# ================= SANITIZERS =================
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_options(-fsanitize=address,undefined)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
-# ================= SUMMARY =================
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ standard: ${CMAKE_CXX_STANDARD}")

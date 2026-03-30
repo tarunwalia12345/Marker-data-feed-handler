@@ -1,12 +1,8 @@
 #include "latency_tracker.h"
 
-// ===============================
-// BUCKET MAPPING (log scale)
-// ===============================
 size_t LatencyTracker::bucket_index(uint64_t ns) const {
     size_t idx = 0;
 
-    // convert to microseconds for stability
     uint64_t us = ns / 1000;
 
     while (us > 1 && idx + 1 < BUCKETS) {
@@ -17,9 +13,6 @@ size_t LatencyTracker::bucket_index(uint64_t ns) const {
     return idx;
 }
 
-// ===============================
-// RECORD (HOT PATH)
-// ===============================
 void LatencyTracker::record(uint64_t latency_ns) {
     size_t idx = bucket_index(latency_ns);
 
@@ -28,9 +21,6 @@ void LatencyTracker::record(uint64_t latency_ns) {
     sum.fetch_add(latency_ns, std::memory_order_relaxed);
 }
 
-// ===============================
-// GET STATS
-// ===============================
 LatencyTracker::Stats LatencyTracker::get_stats() const {
     Stats s{};
 
@@ -41,7 +31,6 @@ LatencyTracker::Stats LatencyTracker::get_stats() const {
 
     s.mean = sum.load(std::memory_order_relaxed) / total;
 
-    // percentile targets
     uint64_t p50_t = total * 50 / 100;
     uint64_t p95_t = total * 95 / 100;
     uint64_t p99_t = total * 99 / 100;
@@ -55,16 +44,13 @@ LatencyTracker::Stats LatencyTracker::get_stats() const {
         uint64_t count = histogram[i].load(std::memory_order_relaxed);
         if (count == 0) continue;
 
-        // approximate latency value (reverse log scale)
-        uint64_t value = (1ULL << i) * 1000; // back to ns
-
+        uint64_t value = (1ULL << i) * 1000;
         if (!min_set) {
             s.min = value;
             min_set = true;
         }
 
         s.max = value;
-
         cumulative += count;
 
         if (cumulative >= p50_t && s.p50 == 0) s.p50 = value;

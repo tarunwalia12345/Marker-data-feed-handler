@@ -14,7 +14,6 @@ ParseResult Parser::parse(const char* data, size_t len) {
 
     auto type = static_cast<uint16_t>(h.type);
 
-    // 🔥 TRADE
     if (type == static_cast<uint16_t>(MsgType::TRADE)) {
         if (len < sizeof(Header) + sizeof(Trade)) return {false};
 
@@ -23,7 +22,6 @@ ParseResult Parser::parse(const char* data, size_t len) {
 
         cache.update_trade(symbol, t.price, t.qty);
     }
-    // 🔥 QUOTE
     else if (type == static_cast<uint16_t>(MsgType::QUOTE)) {
         if (len < sizeof(Header) + sizeof(Quote)) return {false};
 
@@ -39,14 +37,13 @@ ParseResult Parser::parse(const char* data, size_t len) {
         // do nothing
     }
     else {
-        return {false}; // unknown type
+        return {false}
     }
 
     return {true};
 }
 
 void Parser::feed(const char* data, size_t len) {
-    // Append incoming TCP data
     buffer.insert(buffer.end(), data, data + len);
 
     size_t offset = 0;
@@ -54,7 +51,6 @@ void Parser::feed(const char* data, size_t len) {
     while (true) {
         size_t remaining = buffer.size() - offset;
 
-        // Not enough for header
         if (remaining < sizeof(Header)) break;
 
         Header h;
@@ -63,7 +59,6 @@ void Parser::feed(const char* data, size_t len) {
         size_t msg_size = sizeof(Header);
         auto type = static_cast<uint16_t>(h.type);
 
-        // Determine full message size
         if (type == static_cast<uint16_t>(MsgType::TRADE)) {
             msg_size += sizeof(Trade);
         }
@@ -71,24 +66,19 @@ void Parser::feed(const char* data, size_t len) {
             msg_size += sizeof(Quote);
         }
         else if (type == static_cast<uint16_t>(MsgType::HEARTBEAT)) {
-            // no payload
         }
         else {
-            // ❗ Unknown data → resync (VERY IMPORTANT)
             offset += 1;
             continue;
         }
 
-        // Incomplete message → wait for more data
         if (remaining < msg_size) break;
 
-        // Process complete message
         parse(buffer.data() + offset, msg_size);
 
         offset += msg_size;
     }
 
-    // Remove processed bytes
     if (offset > 0) {
         buffer.erase(buffer.begin(), buffer.begin() + offset);
     }

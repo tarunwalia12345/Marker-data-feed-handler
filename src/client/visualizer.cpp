@@ -7,19 +7,16 @@
 #include <cstring>
 #include "cache.h"
 
-// ================= ANSI =================
 #define CLEAR "\033[H"
 #define GREEN "\033[32m"
 #define RED   "\033[31m"
 #define RESET "\033[0m"
 
-// ================= SYMBOL NAMES =================
 static const char* SYMBOLS[] = {
     "RELIANCE","TCS","INFY","HDFC","ICICIBANK",
     "SBIN","LT","AXISBANK","WIPRO","HCLTECH"
 };
 
-// ================= SHARED STATS =================
 struct Stats {
     std::atomic<uint64_t> messages{0};
     std::atomic<uint64_t> updates{0};
@@ -28,7 +25,6 @@ struct Stats {
 
 Stats stats;
 
-// ================= LATENCY TRACKER =================
 class LatencyTracker {
 public:
     void record(uint64_t ns) {
@@ -64,7 +60,6 @@ private:
 
 LatencyTracker latency;
 
-// ================= ROW =================
 struct Row {
     int symbol;
     double bid, ask, ltp;
@@ -72,7 +67,6 @@ struct Row {
     uint64_t updates;
 };
 
-// ================= RENDER =================
 void render(Cache& cache, uint64_t messages) {
 
     static auto start = std::chrono::steady_clock::now();

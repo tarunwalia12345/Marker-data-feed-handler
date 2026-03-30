@@ -46,7 +46,6 @@ void ExchangeSimulator::run() {
 
             std::cout << "Client connected\n";
 
-            // make client non-blocking
             int cflags = fcntl(client, F_GETFL, 0);
             fcntl(client, F_SETFL, cflags | O_NONBLOCK);
 
@@ -65,7 +64,6 @@ void ExchangeSimulator::run() {
 
             char buf[sizeof(Header) + sizeof(Quote)];
 
-            // 🔥 70% QUOTE, 30% TRADE
             if (rand() % 100 < 70) {
                 h.type = MsgType::QUOTE;
 
