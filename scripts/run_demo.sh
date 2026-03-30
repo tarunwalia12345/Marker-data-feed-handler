@@ -1,13 +1,17 @@
 #!/bin/bash
 
-echo "🚀 Running demo..."
+echo "Running demo..."
 
+# start server in background
 ./scripts/run_server.sh &
 SERVER_PID=$!
 
-sleep 2
+sleep 1
 
+# run client
 ./scripts/run_client.sh
 
-# Kill server after client exits
+# stop server after client exits
 kill $SERVER_PID
+
+echo "Demo finished."

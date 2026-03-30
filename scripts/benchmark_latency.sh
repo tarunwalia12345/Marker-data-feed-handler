@@ -1,4 +1,6 @@
 #!/bin/bash
+
+echo "Running latency benchmark..."
+
 cd build
-echo "📊 Running latency benchmark..."
-./benchmark
+./latency_benchmark

@@ -7,7 +7,9 @@ public:
     ExchangeSimulator(uint16_t port, size_t symbols);
 
     void start();
+
     void run();
+
     void set_tick_rate(uint32_t rate);
 
 private:

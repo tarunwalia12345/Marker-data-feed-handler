@@ -1,13 +1,11 @@
 #!/bin/bash
-set -e
 
-echo "Building project."
+echo "Building project..."
 
-rm -rf build
-mkdir build
+mkdir -p build
 cd build
 
 cmake ..
-make -j
+make -j4
 
-echo "Build complete"
+echo "Done."

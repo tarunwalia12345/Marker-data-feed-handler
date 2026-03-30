@@ -12,12 +12,20 @@
 #include <vector>
 #include <cstring>
 #include <chrono>
+#include <thread>
+#include <errno.h>
+#include <atomic>
 
 static uint32_t checksum(const char* data, size_t len) {
     uint32_t x = 0;
     for (size_t i = 0; i < len; i++) x ^= data[i];
     return x;
 }
+
+struct Client {
+    int fd;
+    std::vector<char> buffer;
+};
 
 ExchangeSimulator::ExchangeSimulator(uint16_t p, size_t n)
     : port(p), num_symbols(n) {}
@@ -27,7 +35,16 @@ void ExchangeSimulator::start() {
 }
 
 void ExchangeSimulator::run() {
+
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    // ✅ ADDED: socket tuning
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    int sndbuf = 4 * 1024 * 1024;
+    setsockopt(server_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+
     fcntl(server_fd, F_SETFL, O_NONBLOCK);
 
     sockaddr_in addr{};
@@ -45,48 +62,104 @@ void ExchangeSimulator::run() {
     ev.data.fd = server_fd;
     epoll_ctl(epfd, EPOLL_CTL_ADD, server_fd, &ev);
 
-    std::vector<int> clients;
-    TickGenerator generator(num_symbols);
-
+    std::vector<Client> clients;
+    TickGenerator generator(static_cast<int>(num_symbols));
     uint32_t seq = 0;
 
     std::vector<char> batch;
     batch.reserve(64 * 1024);
 
-    while (true) {
+    auto last = std::chrono::high_resolution_clock::now();
+
+    // ✅ OPTIONAL graceful shutdown
+    std::atomic<bool> running{true};
+
+    while (running) {
 
         epoll_event events[64];
         int n = epoll_wait(epfd, events, 64, 0);
 
+        // ================= EPOLL =================
         for (int i = 0; i < n; i++) {
+
+            // 🔥 ACCEPT
             if (events[i].data.fd == server_fd) {
                 while (true) {
-                    int client = accept(server_fd, nullptr, nullptr);
-                    if (client < 0) break;
+                    int client_fd = accept(server_fd, nullptr, nullptr);
+                    if (client_fd < 0) break;
 
-                    fcntl(client, F_SETFL, O_NONBLOCK);
-                    clients.push_back(client);
+                    fcntl(client_fd, F_SETFL, O_NONBLOCK);
+
+                    clients.push_back({client_fd, {}});
+
+                    // ✅ ADDED: track client in epoll
+                    epoll_event cev{};
+                    cev.events = EPOLLIN | EPOLLRDHUP;
+                    cev.data.fd = client_fd;
+                    epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &cev);
+                }
+            }
+            else {
+                // ✅ ADDED: detect disconnect
+                if (events[i].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
+
+                    int fd = events[i].data.fd;
+
+                    for (auto it = clients.begin(); it != clients.end(); ++it) {
+                        if (it->fd == fd) {
+                            close(fd);
+                            clients.erase(it);
+                            break;
+                        }
+                    }
                 }
             }
         }
 
+        // ================= RETRY BUFFER =================
+        for (auto it = clients.begin(); it != clients.end();) {
+            Client& c = *it;
+
+            if (!c.buffer.empty()) {
+                ssize_t sent = send(c.fd, c.buffer.data(), c.buffer.size(), MSG_DONTWAIT);
+
+                if (sent > 0) {
+                    c.buffer.erase(c.buffer.begin(), c.buffer.begin() + sent);
+                    ++it;
+                }
+                else if (sent < 0 && errno != EAGAIN) {
+                    close(c.fd);
+                    it = clients.erase(it);
+                }
+                else {
+                    ++it;
+                }
+            }
+            else {
+                ++it;
+            }
+        }
+
+        // ================= GENERATE =================
         batch.clear();
 
         for (size_t i = 0; i < num_symbols; i++) {
 
             Header h{};
             h.seq = seq++;
-            h.symbol = i;
+            h.symbol = static_cast<uint16_t>(i);
             h.timestamp = std::chrono::steady_clock::now().time_since_epoch().count();
 
             char msg[128];
             size_t msg_len = 0;
 
+            bool corrupt = (rand() % 1000 == 0);
+
             if (rand() % 100 < 70) {
                 h.type = MsgType::QUOTE;
 
                 Quote q{};
-                double mid = generator.next(i);
+                double mid = generator.next(static_cast<int>(i));
                 double spread = mid * (0.0005 + (rand() % 150) / 100000.0);
 
                 q.bid_price = mid - spread;
@@ -98,11 +171,12 @@ void ExchangeSimulator::run() {
                 memcpy(msg + sizeof(h), &q, sizeof(q));
 
                 msg_len = sizeof(h) + sizeof(q);
-            } else {
+            }
+            else {
                 h.type = MsgType::TRADE;
 
                 Trade t{};
-                t.price = generator.next(i);
+                t.price = generator.next(static_cast<int>(i));
                 t.qty = 100;
 
                 memcpy(msg, &h, sizeof(h));
@@ -112,6 +186,9 @@ void ExchangeSimulator::run() {
             }
 
             uint32_t cs = checksum(msg, msg_len);
+
+            if (corrupt) cs ^= 0xFFFF;
+
             memcpy(msg + msg_len, &cs, 4);
             msg_len += 4;
 
@@ -120,18 +197,78 @@ void ExchangeSimulator::run() {
             }
         }
 
-        for (auto it = clients.begin(); it != clients.end();) {
-            ssize_t n = send(*it, batch.data(), batch.size(), MSG_DONTWAIT);
+        // ================= FAIR SEND =================
+        if (!clients.empty()) {
 
-            if (n < 0 && errno != EAGAIN) {
-                close(*it);
-                it = clients.erase(it);
-            } else {
-                ++it;
+            size_t start = seq % clients.size(); // ✅ ADDED fairness
+
+            for (size_t i = 0; i < clients.size();) {
+
+                Client& c = clients[(start + i) % clients.size()];
+
+                ssize_t sent = send(c.fd, batch.data(), batch.size(), MSG_DONTWAIT);
+
+                if (sent < 0) {
+                    if (errno == EAGAIN) {
+
+                        // ✅ BUFFER LIMIT
+                        constexpr size_t MAX_BUFFER = 1 << 20;
+
+                        if (c.buffer.size() > MAX_BUFFER) {
+                            std::cout << "Dropping slow client\n";
+                            close(c.fd);
+
+                            // remove safely
+                            for (auto it = clients.begin(); it != clients.end(); ++it) {
+                                if (it->fd == c.fd) {
+                                    clients.erase(it);
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
+
+                        c.buffer.insert(c.buffer.end(), batch.begin(), batch.end());
+                        ++i;
+                    }
+                    else {
+                        close(c.fd);
+
+                        for (auto it = clients.begin(); it != clients.end(); ++it) {
+                            if (it->fd == c.fd) {
+                                clients.erase(it);
+                                break;
+                            }
+                        }
+                    }
+                }
+                else if (sent < (ssize_t)batch.size()) {
+                    c.buffer.insert(
+                        c.buffer.end(),
+                        batch.begin() + sent,
+                        batch.end()
+                    );
+                    ++i;
+                }
+                else {
+                    ++i;
+                }
             }
         }
 
-        usleep(100);
+        // ================= TICK RATE =================
+        auto now = std::chrono::high_resolution_clock::now();
+
+        double elapsed = std::chrono::duration<double>(now - last).count();
+        double expected = static_cast<double>(num_symbols) / tick_rate;
+
+        if (elapsed < expected) {
+            std::this_thread::sleep_for(
+                std::chrono::duration<double>(expected - elapsed)
+            );
+        }
+
+        last = std::chrono::high_resolution_clock::now();
     }
 }
 

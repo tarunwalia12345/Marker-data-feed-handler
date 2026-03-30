@@ -38,8 +38,14 @@ public:
     explicit Cache(size_t n);
 
     void update_trade(uint16_t sym, double price, uint32_t qty);
+
     void update_quote(uint16_t sym, double bid, uint32_t bq,
                       double ask, uint32_t aq);
+
+
+    void updateBid(uint16_t sym, double bid, uint32_t qty);
+
+    void updateAsk(uint16_t sym, double ask, uint32_t qty);
 
     MarketSnapshot get(uint16_t sym) const;
 
