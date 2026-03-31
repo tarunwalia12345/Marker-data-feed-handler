@@ -44,7 +44,7 @@ int main() {
     std::condition_variable cv;
 
     while (true) {
-        if (!socket.connect_to("127.0.0.1", 9877)) {
+        if (!socket.connect_to("127.0.0.1", 9876)) {
             std::cout << "Reconnect attempt...\n";
 
             std::this_thread::sleep_for(

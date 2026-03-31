@@ -94,7 +94,7 @@ void render(Cache &cache, uint64_t messages) {
     std::cout << CLEAR_ALL << CLEAR;
 
     std::cout << "=== NSE Market Data Feed Handler ===\n";
-    std::cout << "Connected to: localhost:9877\n";
+    std::cout << "Connected to: localhost:9876\n";
 
     int hrs = static_cast<int>(seconds) / 3600;
     int mins = (static_cast<int>(seconds) % 3600) / 60;
