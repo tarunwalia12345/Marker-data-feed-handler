@@ -20,7 +20,7 @@ At a high level, the system:
 
 ## 🏗️ Architecture Overview
 
-```id="arch1"
+```
 Exchange Simulator (Server)
     ├── Tick Generator (GBM)
     ├── Message Builder (Trade/Quote)
@@ -41,7 +41,7 @@ Terminal Visualization
 
 ## 📦 Project Structure
 
-```id="struct1"
+```
 ├── src/
 │   ├── server/        # Exchange simulator (tick generation + TCP server)
 │   ├── client/        # Feed handler (socket + parser + UI)
@@ -90,7 +90,7 @@ Each message consists of:
 
 ### Throughput Scaling
 
-```id="graph1"
+```
 Msgs/sec
 500K |                        ██████████████
 400K |                   ██████████████████
@@ -103,7 +103,7 @@ Msgs/sec
 
 ### Latency Distribution
 
-```id="graph2"
+```
 Latency (µs)
 120 |                      █
 100 |                    ███
@@ -115,53 +115,11 @@ Latency (µs)
        p50   p95   p99   p999
 ```
 
-> The system maintains stable latency even under high throughput, which is critical for trading systems.
-
----
-
-## ▶️ How to Run
-
-### 🐧 Install Dependencies
-
-```bash id="cmd1"
-sudo apt update
-sudo apt install -y build-essential cmake g++ make
-```
-
----
-
-### ⚙️ Build (CMake)
-
-```bash id="cmd2"
-git clone https://github.com/tarunwalia12345/Marker-data-feed-handler
-cd Marker-data-feed-handler
-
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
-```
-
----
-
-### 🚀 Run
-
-#### Start Server
-
-```bash id="cmd3"
-./exchange_simulator
-```
-
-#### Start Client (new terminal)
-
-```bash id="cmd4"
-./feed_handler
-```
-
 ---
 
 ## 📺 Sample Output
 
-```id="output1"
+```
 === NSE Market Data Feed Handler ===
 
 Connected: localhost:9876
@@ -191,7 +149,7 @@ p50=15µs  p99=45µs  p999=120µs
 ## ⚙️ Performance Optimizations
 
 * Pre-allocated buffers (no malloc in hot path)
-* Minimal syscalls in event loop
+* Minimized system calls in event loop
 * Efficient TCP buffer usage
 * False sharing avoidance
 * Batched processing
@@ -235,3 +193,5 @@ Tarun Walia
 Built as part of a **low-latency systems / HFT-style assignment**.
 
 ---
+
+⭐ If you found this useful, feel free to star the repo!
