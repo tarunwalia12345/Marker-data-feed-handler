@@ -194,4 +194,3 @@ Built as part of a **low-latency systems / HFT-style assignment**.
 
 ---
 
-⭐ If you found this useful, feel free to star the repo!
